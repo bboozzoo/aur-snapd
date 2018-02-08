@@ -6,17 +6,20 @@
 pkgname=snapd
 pkgdesc="Service and tools for management of snap packages."
 depends=('squashfs-tools' 'libseccomp' 'libsystemd')
+optdepends=('bash-completion: bash completion support')
 pkgver=2.31
-pkgrel=1
+pkgrel=3
 arch=('x86_64')
 url="https://github.com/snapcore/snapd"
 license=('GPL3')
-makedepends=('git' 'go-pie' 'go-tools' 'libcap' 'python-docutils' 'systemd' 'xfsprogs')
+makedepends=('git' 'go-pie' 'go-tools' 'libseccomp' 'libcap' 'systemd' 'xfsprogs')
 conflicts=('snap-confine')
 options=('!strip' 'emptydirs')
 install=snapd.install
-source=("$pkgname-$pkgver::https://github.com/snapcore/${pkgname}/archive/$pkgver.tar.gz")
-sha256sums=('973e7e8098f5780d71a0633a0fa7c3371ef7fb7ae120d464b2e25af9588c1f89')
+source=("$pkgname-$pkgver::https://github.com/snapcore/${pkgname}/archive/$pkgver.tar.gz"
+        "0001-cmd-snap-seccomp-drop-link-flags-that-will-be-reject.patch")
+sha256sums=('973e7e8098f5780d71a0633a0fa7c3371ef7fb7ae120d464b2e25af9588c1f89'
+           'ba4591f70b032b5e6f63d251cf6463ef93f3b963b8f19aac098b4c7dbed0309d')
 
 _gourl=github.com/snapcore/snapd
 
@@ -32,8 +35,7 @@ prepare() {
   mkdir -p "$(dirname "$GOPATH/src/${_gourl}")"
   ln --no-target-directory -fs "$srcdir/$pkgname-$pkgver" "$GOPATH/src/${_gourl}"
 
-  # Patch snap-seccomp build flags not to link libseccomp statically.
-  sed -i -e 's/-Wl,-Bstatic -lseccomp -Wl,-Bdynamic/-lseccomp/' "cmd/snap-seccomp/main.go"
+  patch -Np1 -i "${srcdir}/0001-cmd-snap-seccomp-drop-link-flags-that-will-be-reject.patch"
 }
 
 build() {
@@ -46,7 +48,7 @@ build() {
   export CGO_CXXFLAGS="${CXXFLAGS}"
   export CGO_LDFLAGS="${LDFLAGS}"
 
-  ./mkversion.sh $pkgver
+  ./mkversion.sh $pkgver-$pkgrel
 
   # Use get-deps.sh provided by upstream to fetch go dependencies using the
   # godeps tool and dependencies.tsv (maintained upstream).
@@ -62,10 +64,14 @@ build() {
   go build -o $GOPATH/bin/snap-update-ns -ldflags '-extldflags "-static"' "${_gourl}/cmd/snap-update-ns"
   CGO_ENABLED=0 go build -o $GOPATH/bin/snap-exec "${_gourl}/cmd/snap-exec"
 
-  # Generate the real systemd units out of the available templates
-  make -C data/systemd \
-    SNAP_MOUNT_DIR=/var/lib/snapd/snap \
-    SNAPD_ENVIRONMENT_FILE=/etc/default/snapd
+  # Generate data files such as real systemd units, dbus service, environment
+  # setup helpers out of the available templates
+  make -C data \
+       BINDIR=/bin \
+       LIBEXECDIR=/usr/lib \
+       SYSTEMDSYSTEMUNITDIR=/usr/lib/systemd/system \
+       SNAP_MOUNT_DIR=/var/lib/snapd/snap \
+       SNAPD_ENVIRONMENT_FILE=/etc/default/snapd
 
   cd cmd
   autoreconf -i -f
@@ -76,7 +82,7 @@ build() {
     --disable-apparmor \
     --enable-nvidia-biarch \
     --enable-merged-usr
-  make
+  make $MAKEFLAGS
 }
 
 
@@ -129,6 +135,7 @@ package() {
   install -dm755 "$pkgdir/var/lib/snapd/lib/gl"
   install -dm755 "$pkgdir/var/lib/snapd/lib/gl32"
   install -dm755 "$pkgdir/var/lib/snapd/lib/vulkan"
+  # these dirs have special permissions
   install -dm000 "$pkgdir/var/lib/snapd/void"
   install -dm700 "$pkgdir/var/lib/snapd/cookie"
   install -dm700 "$pkgdir/var/lib/snapd/cache"
@@ -141,7 +148,6 @@ package() {
   # Install the "info" data file with snapd version
   install -m 644 -D "$GOPATH/src/${_gourl}/data/info" \
           "$pkgdir/usr/lib/snapd/info"
-
 
   # Remove snappy core specific units
   rm -fv "$pkgdir/usr/lib/systemd/system/snapd.system-shutdown.service"
