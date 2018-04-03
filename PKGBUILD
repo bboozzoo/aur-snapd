@@ -8,7 +8,7 @@ pkgdesc="Service and tools for management of snap packages."
 depends=('squashfs-tools' 'libseccomp' 'libsystemd')
 optdepends=('bash-completion: bash completion support')
 pkgver=2.32.2
-pkgrel=1
+pkgrel=2
 arch=('x86_64')
 url="https://github.com/snapcore/snapd"
 license=('GPL3')
@@ -134,6 +134,9 @@ package() {
   install -dm700 "$pkgdir/var/lib/snapd/cache"
 
   make -C cmd install DESTDIR="$pkgdir/"
+  # move snapd-generator to systemd generators
+  install -dm755 "$pkgdir/usr/lib/systemd/system-generators"
+  mv "$pkgdir/usr/lib/snapd/snapd-generator" "$pkgdir/usr/lib/systemd/system-generators/"
 
   # Install man file
   mkdir -p "$pkgdir/usr/share/man/man1"
